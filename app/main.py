@@ -42,20 +42,20 @@ def create_item(payload: ItemInput) -> Item:
     return item
 
 
-@app.get("/items/{item_id}", response_model=Item)
-def get_item(item_id: int) -> Item:
+@app.get("/items/{id}", response_model=Item)
+def get_item(id: int) -> Item:
     with _lock:
-        item = _items.get(item_id)
+        item = _items.get(id)
     if item is None:
         raise HTTPException(status_code=404, detail="Item not found")
     return item
 
 
-@app.put("/items/{item_id}", response_model=Item)
-def update_item(item_id: int, payload: ItemInput) -> Item:
+@app.put("/items/{id}", response_model=Item)
+def update_item(id: int, payload: ItemInput) -> Item:
     with _lock:
-        if item_id not in _items:
+        if id not in _items:
             raise HTTPException(status_code=404, detail="Item not found")
-        item = Item(id=item_id, **payload.model_dump())
-        _items[item_id] = item
+        item = Item(id=id, **payload.model_dump())
+        _items[id] = item
     return item
