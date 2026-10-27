@@ -1,8 +1,12 @@
 """Small in-memory CRUD service for the DDIA homework."""
 
+import os
 from threading import Lock
+from time import perf_counter
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Request, Response, status
+from fastapi.routing import APIRoute
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import BaseModel, Field
 
 
@@ -22,14 +26,53 @@ app = FastAPI(
     openapi_url=None,
 )
 
+POD_ID = os.getenv("POD_ID", "local")
+DATACENTER = os.getenv("DATACENTER", "local")
+
+REQUESTS = Counter(
+    "items_http_requests_total",
+    "Completed HTTP requests to business routes.",
+    ("pod_id", "datacenter", "method", "route", "status_code"),
+)
+REQUEST_DURATION = Histogram(
+    "items_http_request_duration_seconds",
+    "Time to produce an HTTP response for a business route, in seconds.",
+    ("pod_id", "datacenter", "method", "route"),
+    buckets=(
+        0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05,
+        0.1, 0.25, 0.5, 1, 2.5, 5, 10,
+    ),
+)
+
 _items: dict[int, Item] = {}
 _next_id = 1
 _lock = Lock()
 
 
+@app.middleware("http")
+async def record_http_metrics(request: Request, call_next):
+    started = perf_counter()
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    finally:
+        route = request.scope.get("route")
+        if isinstance(route, APIRoute) and route.path not in {"/health", "/metrics"}:
+            labels = (POD_ID, DATACENTER, request.method, route.path)
+            REQUESTS.labels(*labels, str(status_code)).inc()
+            REQUEST_DURATION.labels(*labels).observe(perf_counter() - started)
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/metrics")
+def metrics() -> Response:
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.post("/items", response_model=Item, status_code=status.HTTP_201_CREATED)
