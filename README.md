@@ -1,8 +1,8 @@
 # DDIA HW 1: Items monitoring
 
 This repository contains an in-memory FastAPI CRUD service, two instrumented
-container instances, Prometheus scraping configuration, and Grafana with an
-automatically provisioned Prometheus datasource.
+container instances, Prometheus scraping configuration, and a generated
+Grafana dashboard.
 
 ## Run locally
 
@@ -18,6 +18,7 @@ Local endpoints:
 | Service | URL |
 | --- | --- |
 | Grafana | http://localhost:13030 |
+| Generated dashboard | http://localhost:13030/d/ddia-hw1-items/ddia-hw1-c2b7-http-handlers |
 | Prometheus | http://localhost:19090 |
 | Application, dc-1 | http://localhost:18081/health |
 | Application, dc-2 | http://localhost:18082/health |
@@ -33,7 +34,8 @@ separate in each container.
 
 ## CRUD API
 
-The business API has exactly three routes, in addition to `GET /health`:
+The business API has exactly three routes. Service endpoints are `GET /health`,
+`GET /metrics`, and `GET /handlers`.
 
 | Method | Path | Action |
 | --- | --- | --- |
@@ -58,10 +60,10 @@ curl -X POST http://localhost:18081/items \
 ## HTTP metrics (part 1)
 
 Each application exposes Prometheus text at `GET /metrics`. A middleware
-observes completed requests to the three business routes. `GET /health` and
+observes requests to the business routes and `GET /handlers`. `GET /health` and
 `GET /metrics` are excluded, so health checks and Prometheus scrapes do not
-affect business traffic measurements. Unmatched URLs are also excluded because
-they have no business route template.
+affect traffic measurements. Unmatched URLs are also excluded because they
+have no route template.
 
 | Metric | Type | Labels | Use |
 | --- | --- | --- | --- |
@@ -99,13 +101,43 @@ Add `pod_id` and/or `datacenter` matchers inside `{...}` to filter an
 instance or datacenter. To aggregate selected instances, keep the `sum by`
 clauses as shown.
 
+## Generated dashboard (part 2)
+
+`GET /handlers` lists the registered method and path template of every
+instrumented route. The generator reads this endpoint from **both** app
+instances at startup and checks that they agree. It does not keep a route list
+in its own code. At present this yields four handlers: the three CRUD routes
+and `GET /handlers` itself.
+
+The `dashboard_generator` Compose service starts only after both apps and
+Grafana pass their health checks. It uses the administrator credentials from
+`.env` to call Grafana's HTTP API. The Prometheus datasource is provisioned
+with UID `prometheus`; the dashboard uses a stable UID and is replaced on each
+generator run. The generator is a one-shot CLI process that should exit with
+code 0. Its output contains the number of generated panels and the dashboard
+path, but no credentials.
+
+Each discovered handler gets three panels: p50/p95/p99 latency, total RPS,
+and error RPS grouped by exact 4xx/5xx status code. The PromQL selectors use
+the **Datacenter** and **Pod** variables. Both support multiple selections
+and **All**. Rate queries sum the selected instances; latency queries first
+sum histogram buckets by `le`, then call `histogram_quantile`. The dashboard
+has `editable: false` and refreshes every five seconds.
+
+To add a route, register it in the FastAPI app and restart the stack with
+`docker compose down` followed by `docker compose up --build`. The next
+generator run discovers the new route and adds its three panels. Grafana data
+is stored in a named volume, while the generator overwrites only the
+dashboard with its own UID.
+
+The panels need request traffic before they show time series. The background
+load generator is part 3; for now, use the CRUD example above or send requests
+manually.
+
 ## Remaining student work
 
 The stack is not yet a completed submission. The following parts remain:
 
-- Add `GET /handlers` for runtime handler discovery.
-- Design the dashboard generator, including PromQL aggregation, pod and
-  datacenter selectors, non-editable dashboard settings, and startup ordering.
 - Choose and implement the load tool, including a gradual ramp, both
   application instances, every business route, and at least two error codes.
 - Verify that `docker compose up` displays data in Grafana after 2-3 minutes,
