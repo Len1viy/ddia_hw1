@@ -1,7 +1,6 @@
 name: ddia-hw1
 
 x-app: &app
-  build: .
   image: ddia-hw1-app:local
   healthcheck:
     test:
@@ -17,6 +16,8 @@ x-app: &app
 services:
   app_dc1:
     <<: *app
+    build: .
+    pull_policy: build
     environment:
       POD_ID: pod-1
       DATACENTER: dc-1
@@ -25,6 +26,7 @@ services:
 
   app_dc2:
     <<: *app
+    pull_policy: never
     environment:
       POD_ID: pod-2
       DATACENTER: dc-2
@@ -78,6 +80,7 @@ services:
       context: .
       dockerfile: Dockerfile.generator
     image: ddia-hw1-dashboard-generator:local
+    pull_policy: build
     environment:
       APP_URLS: http://app_dc1:8000,http://app_dc2:8000
       GRAFANA_URL: http://grafana:3000
@@ -91,6 +94,24 @@ services:
       grafana:
         condition: service_healthy
     restart: "no"
+
+  load_generator:
+    image: ddia-hw1-dashboard-generator:local
+    pull_policy: never
+    command: ["python", "scripts/load.py"]
+    environment:
+      APP_URLS: http://app_dc1:8000,http://app_dc2:8000
+      LOAD_INITIAL_RPS: "2"
+      LOAD_TARGET_RPS: "30"
+      LOAD_RAMP_SECONDS: "150"
+    depends_on:
+      app_dc1:
+        condition: service_healthy
+      app_dc2:
+        condition: service_healthy
+      dashboard_generator:
+        condition: service_completed_successfully
+    restart: unless-stopped
 
 volumes:
   prometheus-data:

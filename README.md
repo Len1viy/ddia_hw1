@@ -1,8 +1,8 @@
 # DDIA HW 1: Items monitoring
 
 This repository contains an in-memory FastAPI CRUD service, two instrumented
-container instances, Prometheus scraping configuration, and a generated
-Grafana dashboard.
+container instances, Prometheus, a generated Grafana dashboard, and a
+continuous load generator.
 
 ## Run locally
 
@@ -10,7 +10,7 @@ Docker Engine and Docker Compose are required.
 
 ```sh
 cp .env.example .env
-docker compose up --build
+docker compose up
 ```
 
 Local endpoints:
@@ -130,15 +130,38 @@ generator run discovers the new route and adds its three panels. Grafana data
 is stored in a named volume, while the generator overwrites only the
 dashboard with its own UID.
 
-The panels need request traffic before they show time series. The background
-load generator is part 3; for now, use the CRUD example above or send requests
-manually.
+## Background load (part 3)
+
+The `load_generator` service starts after both apps are healthy **and** the
+dashboard generator has exited successfully. It creates one anchor item in
+each app instance, then sends requests to both instances continuously. The
+default target is **30 RPS total**: it ramps linearly from 2 RPS over 150
+seconds (2.5 minutes) and then stays at 30 RPS until the stack is stopped.
+Eight workers keep the request schedule moving if an individual request is
+slow.
+
+The deterministic 50-request cycle exercises POST, GET, PUT, and
+`GET /handlers` on both pods. Two requests per cycle intentionally fail:
+`GET /items/2147483647` returns 404 and an invalid `POST /items` returns 422.
+The expected error share is therefore **4%**, with two separate status codes
+visible on the dashboard. Successful POSTs happen once per cycle, limiting
+growth of the in-memory store during a long run.
+
+Every 30 seconds, the generator logs its target and observed RPS, completed
+request count, status-code counts, and per-pod counts. To inspect it while
+the stack runs:
+
+```sh
+docker compose logs -f load_generator
+```
+
+The defaults are defined in `compose.yaml` as `LOAD_INITIAL_RPS`,
+`LOAD_TARGET_RPS`, and `LOAD_RAMP_SECONDS`. To rebuild after code changes,
+run `docker compose up --build`. Stop the stack with `docker compose down`.
 
 ## Remaining student work
 
-The stack is not yet a completed submission. The following parts remain:
+The stack is implemented. The following submission steps remain:
 
-- Choose and implement the load tool, including a gradual ramp, both
-  application instances, every business route, and at least two error codes.
-- Verify that `docker compose up` displays data in Grafana after 2-3 minutes,
-  record a one-minute screencast, and open the final PR.
+- Record a one-minute screencast with the live dashboard and load.
+- Open the final PR with a link to the screencast.
