@@ -1,5 +1,3 @@
-"""Generate the Grafana dashboard from the running application's route list."""
-
 import base64
 import json
 import os

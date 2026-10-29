@@ -1,5 +1,3 @@
-"""Small in-memory CRUD service for the DDIA homework."""
-
 import os
 from threading import Lock
 from time import perf_counter

@@ -1,5 +1,3 @@
-"""Generate a sustained, gradually increasing HTTP load on both app instances."""
-
 import json
 import math
 import os
